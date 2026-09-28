@@ -1,5 +1,6 @@
 import { applyCommand, type CommandResult, type WorldCommand } from '../sim/commands';
 import { createDialogueLine, type DialogueLine, type DialogueProvider } from '../sim/dialogue';
+import { createSave, parseSave, type SaveEnvelope } from '../persistence/save';
 import type { Resident, WorldEvent, WorldEventType, WorldScenario, WorldState } from '../sim/types';
 
 export interface HumanTerrariumApi {
@@ -11,6 +12,8 @@ export interface HumanTerrariumApi {
   dispatch(command: WorldCommand): Promise<CommandResult>;
   registerDialogueProvider(provider: DialogueProvider): () => void;
   createDialogue(speakerId: string, listenerId: string): Promise<DialogueLine>;
+  exportSave(): Promise<SaveEnvelope>;
+  importSave(data: string | SaveEnvelope): Promise<CommandResult>;
 }
 
 export function createRuntime(initialWorld: WorldState): HumanTerrariumApi & { replaceWorld(world: WorldState): void } {
@@ -55,7 +58,15 @@ export function createRuntime(initialWorld: WorldState): HumanTerrariumApi & { r
       if (!speaker || !listener) throw new Error('Resident not found');
       return createDialogueLine(world, speaker, listener, dialogueProvider);
     },
+    exportSave: async () => createSave(world),
+    importSave: async (data) => {
+      try {
+        world = parseSave(data);
+        return { ok: true };
+      } catch (error) {
+        return { ok: false, code: 'INVALID_COMMAND', message: error instanceof Error ? error.message : '存档无效' };
+      }
+    },
     replaceWorld: (next) => { world = next; },
   };
 }
-
