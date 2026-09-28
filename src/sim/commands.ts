@@ -27,6 +27,7 @@ const opportunitySchema = z.object({
 
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('update-era-parameter'), path: z.enum(parameterPaths), value: z.number().min(0).max(100) }),
+  z.object({ type: z.literal('update-scenario-metadata'), name: z.string().min(1).max(40), description: z.string().max(240) }),
   z.object({ type: z.literal('upsert-policy'), policy: policySchema }),
   z.object({ type: z.literal('remove-policy'), policyId: z.string().min(1) }),
   z.object({ type: z.literal('create-opportunity'), opportunity: opportunitySchema }),
@@ -55,10 +56,22 @@ export function applyCommand(world: WorldState, raw: unknown): CommandResult {
     const [group, key] = command.path.split('.') as [keyof typeof world.scenario.parameters, string];
     const record = world.scenario.parameters[group] as unknown as Record<string, number>;
     record[key] = command.value;
+    if (world.scenario.id !== 'custom') {
+      world.scenario.name = `自定义 · ${world.scenario.name}`;
+      world.scenario.id = 'custom';
+      world.scenario.baseline = 'custom';
+    }
     event(world, {
       type: 'economy', title: '时代参数发生变化', detail: `${command.path} 调整为 ${command.value}`, residentIds: [], causalId: id,
     });
     return { ok: true, causalId: id };
+  }
+  if (command.type === 'update-scenario-metadata') {
+    world.scenario.id = 'custom';
+    world.scenario.baseline = 'custom';
+    world.scenario.name = command.name;
+    world.scenario.description = command.description;
+    return { ok: true };
   }
   if (command.type === 'upsert-policy') {
     const id = causalId(world);
@@ -98,4 +111,3 @@ export function applyCommand(world: WorldState, raw: unknown): CommandResult {
   }
   return { ok: true };
 }
-

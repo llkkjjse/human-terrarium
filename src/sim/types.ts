@@ -157,6 +157,7 @@ export interface CommunityMetrics {
 }
 
 export type WorldEventType =
+  | 'tick'
   | 'activity'
   | 'dialogue'
   | 'relationship'
@@ -193,4 +194,3 @@ export interface WorldState {
   events: WorldEvent[];
   lastSavedAt: number;
 }
-

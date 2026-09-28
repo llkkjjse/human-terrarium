@@ -123,6 +123,116 @@ function targetDistrict(activity: Activity, resident: Resident): DistrictId {
   return resident.districtId;
 }
 
+function addEvent(world: WorldState, event: Omit<WorldState['events'][number], 'id' | 'tick'>): void {
+  world.events.push({ ...event, id: `event-${world.tick}-${world.events.length + 1}`, tick: world.tick });
+  if (world.events.length > 240) world.events.splice(0, world.events.length - 240);
+}
+
+function effectiveValue(world: WorldState, path: string, baseValue: number): number {
+  const policyDelta = world.scenario.policies
+    .filter((policy) => policy.enabled)
+    .flatMap((policy) => policy.modifiers.map((modifier) => ({ ...modifier, intensity: policy.intensity })))
+    .filter((modifier) => modifier.path === path)
+    .reduce((total, modifier) => total + modifier.delta * modifier.intensity / 100, 0);
+  return clamp(baseValue + policyDelta);
+}
+
+function updateMetrics(world: WorldState): void {
+  const { parameters } = world.scenario;
+  const welfare = effectiveValue(world, 'institutions.welfare', parameters.institutions.welfare);
+  const prosperity = effectiveValue(world, 'economy.prosperity', parameters.economy.prosperity);
+  const inequality = effectiveValue(world, 'economy.inequality', parameters.economy.inequality);
+  const housing = effectiveValue(world, 'economy.housingPressure', parameters.economy.housingPressure);
+  const healthcare = effectiveValue(world, 'institutions.healthcare', parameters.institutions.healthcare);
+  const safety = effectiveValue(world, 'institutions.publicSafety', parameters.institutions.publicSafety);
+  const averageHealth = world.residents.filter((resident) => resident.alive).reduce((sum, resident) => sum + resident.needs.health, 0) / Math.max(1, world.residents.filter((resident) => resident.alive).length);
+  const targets = {
+    vitality: prosperity * 0.7 + parameters.technology.productivity * 0.3,
+    health: averageHealth * 0.5 + healthcare * 0.3 + parameters.technology.medicine * 0.2 - parameters.environment.pollution * 0.08,
+    trust: parameters.culture.socialTrust * 0.65 + welfare * 0.2 + (100 - inequality) * 0.15,
+    mobility: parameters.institutions.education * 0.35 + prosperity * 0.35 + (100 - inequality) * 0.3,
+    equality: (100 - inequality) * 0.5 + welfare * 0.35 + (100 - housing) * 0.15,
+    safety: safety * 0.7 + (100 - parameters.environment.disasterRisk) * 0.3,
+  };
+  for (const key of Object.keys(targets) as Array<keyof typeof targets>) {
+    world.metrics[key] = clamp(world.metrics[key] + (targets[key] - world.metrics[key]) * 0.08);
+  }
+}
+
+function opportunityTargets(world: WorldState, target: string): Resident[] {
+  if (target === 'everyone') return world.residents.filter((resident) => resident.alive);
+  return world.residents.filter((resident) => resident.alive && (resident.role === target || resident.districtId === target));
+}
+
+function updateOpportunities(world: WorldState): void {
+  for (const opportunity of world.scenario.opportunities) {
+    for (const resident of opportunityTargets(world, opportunity.target)) {
+      resident.savings = clamp(resident.savings + opportunity.prosperityBoost / 40);
+      resident.needs.purpose = clamp(resident.needs.purpose + Math.max(0, opportunity.prosperityBoost) / 50);
+    }
+    opportunity.remainingTicks -= 1;
+  }
+  const expired = world.scenario.opportunities.filter((opportunity) => opportunity.remainingTicks <= 0);
+  world.scenario.opportunities = world.scenario.opportunities.filter((opportunity) => opportunity.remainingTicks > 0);
+  for (const opportunity of expired) {
+    addEvent(world, { type: 'opportunity', title: '机遇窗口结束', detail: opportunity.name, residentIds: [], causalId: opportunity.causalId });
+  }
+}
+
+function updateSocialLife(world: WorldState): void {
+  if (world.tick % 4 !== 0) return;
+  const socialResidents = world.residents.filter((resident) => resident.alive && resident.activity === 'socialize');
+  for (let index = 0; index + 1 < socialResidents.length; index += 2) {
+    const speaker = socialResidents[index];
+    const listener = socialResidents[index + 1];
+    if (speaker.districtId !== listener.districtId) continue;
+    const random = nextRandom(world.rngState);
+    world.rngState = random.state;
+    const chance = (speaker.personality.extraversion + listener.personality.extraversion) / 240;
+    if (random.value > chance) continue;
+    const oldRelationship = speaker.relationships[listener.id] ?? 0;
+    const gain = 1 + Math.round((speaker.personality.agreeableness + listener.personality.agreeableness) / 80);
+    speaker.relationships[listener.id] = clamp(oldRelationship + gain);
+    listener.relationships[speaker.id] = clamp((listener.relationships[speaker.id] ?? 0) + gain);
+    const lines = ['聊起了最近的工作和生活。', '交换了对社区变化的看法。', '在路边停下来问候彼此。'];
+    addEvent(world, {
+      type: 'dialogue', title: `${speaker.name} 与 ${listener.name} 交谈`, detail: lines[world.tick % lines.length],
+      residentIds: [speaker.id, listener.id],
+    });
+  }
+}
+
+function updateMigration(world: WorldState): void {
+  if (world.tick % 32 !== 0) return;
+  const alive = world.residents.filter((resident) => resident.alive);
+  if (alive.length >= 24 || world.scenario.parameters.economy.prosperity < 40) return;
+  const roleCounts = new Map<Role, number>(roles.map((role) => [role, alive.filter((resident) => resident.role === role).length]));
+  const role = roles.reduce((least, candidate) => (roleCounts.get(candidate)! < roleCounts.get(least)! ? candidate : least), roles[0]);
+  const template = structuredClone(alive[0] ?? world.residents[0]);
+  const sequence = world.residents.length + 1;
+  const randomAge = nextRandom(world.rngState);
+  const randomPosition = nextRandom(randomAge.state);
+  world.rngState = randomPosition.state;
+  const newcomer: Resident = {
+    ...template,
+    id: `migrant-${world.day}-${sequence}`,
+    name: `新居民${sequence}`,
+    age: 20 + Math.floor(randomAge.value * 24),
+    role,
+    districtId: 'residential',
+    x: 120 + randomPosition.value * 480,
+    y: 210,
+    employed: true,
+    alive: true,
+    activity: 'idle',
+    relationships: {},
+    memories: [{ id: `memory-${world.tick}`, text: '刚刚搬进这座社区。', tone: 'neutral', tick: world.tick }],
+    needs: createNeeds(),
+  };
+  world.residents.push(newcomer);
+  addEvent(world, { type: 'migration', title: `${newcomer.name} 迁入社区`, detail: `带着${roles.indexOf(role) >= 0 ? role : '新的'}技能开始生活。`, residentIds: [newcomer.id] });
+}
+
 export function stepWorld(world: WorldState): WorldState {
   world.tick += 1;
   world.minuteOfDay += 15;
@@ -132,6 +242,12 @@ export function stepWorld(world: WorldState): WorldState {
   }
   for (const resident of world.residents) {
     if (!resident.alive) continue;
+    if (resident.needs.health <= 0 && resident.needs.hunger <= 0) {
+      resident.alive = false;
+      resident.activity = 'idle';
+      addEvent(world, { type: 'death', title: `${resident.name} 离世`, detail: '长期的健康与生存压力最终超过了承受能力。', residentIds: [resident.id] });
+      continue;
+    }
     resident.activity = chooseActivity(resident, world.minuteOfDay);
     resident.districtId = targetDistrict(resident.activity, resident);
     const district = world.districts.find((item) => item.id === resident.districtId)!;
@@ -141,7 +257,11 @@ export function stepWorld(world: WorldState): WorldState {
     resident.x += ((district.x + 40 + randomX.value * (district.width - 80)) - resident.x) * 0.09;
     resident.y += ((district.y + 50 + randomY.value * (district.height - 100)) - resident.y) * 0.09;
     updateNeeds(resident);
+    if (resident.needs.hunger < 10 || resident.needs.energy < 5) resident.needs.health = clamp(resident.needs.health - 0.6);
   }
+  updateOpportunities(world);
+  updateSocialLife(world);
+  updateMetrics(world);
+  updateMigration(world);
   return world;
 }
-

@@ -2,6 +2,7 @@ import { applyCommand, type CommandResult, type WorldCommand } from '../sim/comm
 import { createDialogueLine, type DialogueLine, type DialogueProvider } from '../sim/dialogue';
 import { createSave, parseSave, type SaveEnvelope } from '../persistence/save';
 import type { Resident, WorldEvent, WorldEventType, WorldScenario, WorldState } from '../sim/types';
+import { stepWorld } from '../sim/world';
 
 export interface HumanTerrariumApi {
   getWorldSnapshot(): WorldState;
@@ -12,6 +13,7 @@ export interface HumanTerrariumApi {
   dispatch(command: WorldCommand): Promise<CommandResult>;
   registerDialogueProvider(provider: DialogueProvider): () => void;
   createDialogue(speakerId: string, listenerId: string): Promise<DialogueLine>;
+  advance(ticks?: number): WorldState;
   exportSave(): Promise<SaveEnvelope>;
   importSave(data: string | SaveEnvelope): Promise<CommandResult>;
 }
@@ -57,6 +59,16 @@ export function createRuntime(initialWorld: WorldState): HumanTerrariumApi & { r
       const listener = world.residents.find((resident) => resident.id === listenerId);
       if (!speaker || !listener) throw new Error('Resident not found');
       return createDialogueLine(world, speaker, listener, dialogueProvider);
+    },
+    advance: (ticks = 1) => {
+      const count = Math.max(0, Math.min(32, Math.floor(ticks)));
+      for (let index = 0; index < count; index += 1) {
+        const eventCount = world.events.length;
+        stepWorld(world);
+        world.events.slice(eventCount).forEach(publish);
+      }
+      publish({ id: `tick-${world.tick}`, tick: world.tick, type: 'tick', title: '模拟推进', detail: `${count} 个时间片`, residentIds: [] });
+      return structuredClone(world);
     },
     exportSave: async () => createSave(world),
     importSave: async (data) => {
