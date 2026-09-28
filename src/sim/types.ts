@@ -192,5 +192,6 @@ export interface WorldState {
   residents: Resident[];
   metrics: CommunityMetrics;
   events: WorldEvent[];
+  nextEventSequence: number;
   lastSavedAt: number;
 }

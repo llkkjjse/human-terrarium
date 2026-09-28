@@ -43,10 +43,9 @@ export async function createDialogueLine(
   };
   try {
     const timeout = new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500));
-    const response = responseSchema.parse(await Promise.race([provider(request), timeout]));
+    const response = responseSchema.parse(await Promise.race([provider(structuredClone(request)), timeout]));
     return { ...response, source: 'ai' };
   } catch {
     return templateDialogue(world, speaker, listener);
   }
 }
-

@@ -78,6 +78,7 @@ export function createWorld(input: { seed: number; scenario: WorldScenario }): W
     residents,
     metrics: { vitality: 68, health: 76, trust: 62, mobility: 56, equality: 58, safety: 78 },
     events: [],
+    nextEventSequence: 0,
     lastSavedAt: Date.now(),
   };
 }
@@ -124,7 +125,8 @@ function targetDistrict(activity: Activity, resident: Resident): DistrictId {
 }
 
 function addEvent(world: WorldState, event: Omit<WorldState['events'][number], 'id' | 'tick'>): void {
-  world.events.push({ ...event, id: `event-${world.tick}-${world.events.length + 1}`, tick: world.tick });
+  world.nextEventSequence += 1;
+  world.events.push({ ...event, id: `event-${world.nextEventSequence}`, tick: world.tick });
   if (world.events.length > 240) world.events.splice(0, world.events.length - 240);
 }
 
@@ -135,6 +137,108 @@ function effectiveValue(world: WorldState, path: string, baseValue: number): num
     .filter((modifier) => modifier.path === path)
     .reduce((total, modifier) => total + modifier.delta * modifier.intensity / 100, 0);
   return clamp(baseValue + policyDelta);
+}
+
+const automationExposure: Record<Role, number> = {
+  supply: 0.85,
+  commerce: 0.65,
+  care: 0.2,
+  maintenance: 0.45,
+  safety: 0.25,
+  culture: 0.35,
+};
+
+function updateEmployment(world: WorldState, resident: Resident): void {
+  if (world.tick % 32 !== 0) return;
+  const { economy, institutions, technology } = world.scenario.parameters;
+  const unemployment = effectiveValue(world, 'economy.unemployment', economy.unemployment);
+  const prosperity = effectiveValue(world, 'economy.prosperity', economy.prosperity);
+  const protection = effectiveValue(world, 'institutions.laborProtection', institutions.laborProtection);
+  const random = nextRandom(world.rngState);
+  world.rngState = random.state;
+
+  if (resident.employed) {
+    const pressure = unemployment * 0.65
+      + technology.automation * automationExposure[resident.role] * 0.35
+      - protection * 0.35
+      - resident.personality.resilience * 0.2
+      - prosperity * 0.15;
+    if (random.value < Math.max(0, pressure) / 250) {
+      resident.employed = false;
+      resident.memories.push({
+        id: `memory-${resident.id}-${world.tick}`,
+        text: '岗位发生变化，开始重新寻找生活的落点。',
+        tone: 'negative',
+        tick: world.tick,
+      });
+      addEvent(world, {
+        type: 'economy',
+        title: `${resident.name} 暂时失去工作`,
+        detail: '失业、自动化与劳动保障共同改变了这份工作的稳定性。',
+        residentIds: [resident.id],
+      });
+    }
+    return;
+  }
+
+  const reemploymentChance = (
+    (100 - unemployment) * 0.25
+    + institutions.education * 0.12
+    + prosperity * 0.15
+    + resident.personality.curiosity * 0.08
+  ) / 100;
+  if (random.value < reemploymentChance) {
+    resident.employed = true;
+    resident.memories.push({
+      id: `memory-${resident.id}-${world.tick}`,
+      text: '找到了一份新的工作，生活重新有了节奏。',
+      tone: 'positive',
+      tick: world.tick,
+    });
+    addEvent(world, {
+      type: 'economy',
+      title: `${resident.name} 找到新工作`,
+      detail: '教育、经济活力与个人适应力促成了这次机会。',
+      residentIds: [resident.id],
+    });
+  }
+}
+
+function updateResidentEraEffects(world: WorldState, resident: Resident): void {
+  const { economy, institutions, technology, culture, environment } = world.scenario.parameters;
+  const prosperity = effectiveValue(world, 'economy.prosperity', economy.prosperity);
+  const wages = effectiveValue(world, 'economy.wages', economy.wages);
+  const prices = effectiveValue(world, 'economy.prices', economy.prices);
+  const housing = effectiveValue(world, 'economy.housingPressure', economy.housingPressure);
+  const welfare = effectiveValue(world, 'institutions.welfare', institutions.welfare);
+  const healthcare = effectiveValue(world, 'institutions.healthcare', institutions.healthcare);
+  const publicSafety = effectiveValue(world, 'institutions.publicSafety', institutions.publicSafety);
+
+  const targetIncome = resident.employed
+    ? wages * 0.62 + prosperity * 0.25 + resident.personality.diligence * 0.13
+    : welfare * 0.42;
+  resident.income = clamp(resident.income + (targetIncome - resident.income) * 0.025);
+
+  const disposablePressure = resident.income + welfare * 0.16 - prices * 0.3 - housing * 0.24;
+  resident.savings = clamp(resident.savings + disposablePressure / 600);
+
+  const healthTarget = healthcare * 0.35
+    + technology.medicine * 0.25
+    + environment.supply * 0.18
+    + resident.personality.resilience * 0.12
+    + (100 - environment.pollution) * 0.1
+    - environment.epidemicRisk * 0.08;
+  resident.needs.health = clamp(resident.needs.health + (healthTarget - resident.needs.health) * 0.006);
+
+  const safetyTarget = publicSafety * 0.7
+    + (100 - environment.disasterRisk) * 0.2
+    + resident.personality.resilience * 0.1;
+  resident.needs.safety = clamp(resident.needs.safety + (safetyTarget - resident.needs.safety) * 0.01);
+
+  const purposeTarget = resident.employed
+    ? culture.workEthic * 0.45 + prosperity * 0.25 + resident.personality.diligence * 0.3
+    : welfare * 0.35 + resident.personality.resilience * 0.3 + culture.openness * 0.2;
+  resident.needs.purpose = clamp(resident.needs.purpose + (purposeTarget - resident.needs.purpose) * 0.008);
 }
 
 function updateMetrics(world: WorldState): void {
@@ -257,6 +361,8 @@ export function stepWorld(world: WorldState): WorldState {
     resident.x += ((district.x + 40 + randomX.value * (district.width - 80)) - resident.x) * 0.09;
     resident.y += ((district.y + 50 + randomY.value * (district.height - 100)) - resident.y) * 0.09;
     updateNeeds(resident);
+    updateEmployment(world, resident);
+    updateResidentEraEffects(world, resident);
     if (resident.needs.hunger < 10 || resident.needs.energy < 5) resident.needs.health = clamp(resident.needs.health - 0.6);
   }
   updateOpportunities(world);

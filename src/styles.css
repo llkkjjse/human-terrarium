@@ -20,6 +20,7 @@ button { color: inherit; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px solid #e7a34f; outline-offset: 2px; }
 
 .app-shell {
+  position: relative;
   height: 100vh;
   display: grid;
   grid-template-rows: 88px minmax(0, 1fr);
@@ -27,6 +28,25 @@ button:focus-visible, select:focus-visible, input:focus-visible { outline: 3px s
   background-image: linear-gradient(rgba(66, 68, 61, .035) 1px, transparent 1px), linear-gradient(90deg, rgba(66, 68, 61, .035) 1px, transparent 1px);
   background-size: 24px 24px;
 }
+
+.persistence-notice {
+  position: absolute;
+  z-index: 20;
+  top: 96px;
+  left: 50%;
+  display: flex;
+  gap: 16px;
+  align-items: center;
+  max-width: min(720px, 80vw);
+  padding: 11px 14px;
+  border: 1px solid #a64f3e;
+  background: #fff3df;
+  box-shadow: 0 8px 24px rgba(48, 38, 28, .18);
+  transform: translateX(-50%);
+  color: #713a31;
+  font-size: 12px;
+}
+.persistence-notice button { border: 0; background: transparent; color: inherit; cursor: pointer; text-decoration: underline; white-space: nowrap; }
 
 .topbar { display: grid; grid-template-columns: 315px 190px 1fr; border-bottom: 1px solid var(--line); background: rgba(246, 241, 231, .94); }
 .brand-block { position: relative; display: flex; align-items: baseline; gap: 12px; padding: 15px 22px; border-right: 1px solid var(--line); }

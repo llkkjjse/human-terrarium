@@ -1,8 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import type { createRuntime } from '../api/runtime';
-import { getPreset, listPresets } from '../sim/scenarios';
+import { listPresets } from '../sim/scenarios';
 import type { Resident, WorldState } from '../sim/types';
-import { createWorld } from '../sim/world';
 
 const GameCanvas = lazy(() => import('./GameCanvas'));
 type Runtime = ReturnType<typeof createRuntime>;
@@ -17,6 +16,7 @@ const activityNames: Record<Resident['activity'], string> = {
 interface TerrariumAppProps {
   runtime: Runtime;
   renderMap?: boolean;
+  initialNotice?: string | null;
 }
 
 function formatTime(world: WorldState): string {
@@ -25,17 +25,26 @@ function formatTime(world: WorldState): string {
   return `第 ${world.day} 天 · ${hour}:${minute}`;
 }
 
-export function TerrariumApp({ runtime, renderMap = true }: TerrariumAppProps) {
+export function TerrariumApp({ runtime, renderMap = true, initialNotice = null }: TerrariumAppProps) {
   const [world, setWorld] = useState(() => runtime.getWorldSnapshot());
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [notice, setNotice] = useState(initialNotice);
   const selected = useMemo(() => world.residents.find((resident) => resident.id === selectedId) ?? null, [selectedId, world]);
 
   const refresh = () => setWorld(runtime.getWorldSnapshot());
 
+  useEffect(() => runtime.subscribeState(setWorld), [runtime]);
+
+  useEffect(() => {
+    const handlePersistenceError = (event: Event) => setNotice((event as CustomEvent<string>).detail);
+    window.addEventListener('terrarium:persistence-error', handlePersistenceError);
+    return () => window.removeEventListener('terrarium:persistence-error', handlePersistenceError);
+  }, []);
+
   useEffect(() => {
     if (world.timeScale === 0) return undefined;
     const timer = window.setInterval(() => {
-      setWorld(runtime.advance(runtime.getWorldSnapshot().timeScale));
+      runtime.advance(runtime.getWorldSnapshot().timeScale);
     }, 15_000);
     return () => window.clearInterval(timer);
   }, [runtime, world.timeScale]);
@@ -47,10 +56,10 @@ export function TerrariumApp({ runtime, renderMap = true }: TerrariumAppProps) {
 
   const changePreset = (id: string) => {
     if (id === 'custom') return;
-    const next = createWorld({ seed: Date.now() & 0xfffffff, scenario: getPreset(id) });
-    runtime.replaceWorld(next);
-    setSelectedId(null);
-    setWorld(next);
+    void runtime.dispatch({
+      type: 'apply-scenario-preset',
+      presetId: id as 'stable-modern' | 'economic-downturn' | 'industrial-upgrade' | 'automated-future',
+    });
   };
 
   const updateScenarioMetadata = (name: string, description: string) => {
@@ -80,6 +89,7 @@ export function TerrariumApp({ runtime, renderMap = true }: TerrariumAppProps) {
 
   return (
     <div className="app-shell">
+      {notice && <div className="persistence-notice" role="status"><span>{notice}</span><button onClick={() => setNotice(null)}>知道了</button></div>}
       <header className="topbar">
         <div className="brand-block">
           <span className="eyebrow">HUMAN TERRARIUM / 01</span>

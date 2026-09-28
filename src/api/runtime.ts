@@ -10,6 +10,7 @@ export interface HumanTerrariumApi {
   getResident(id: string): Resident | null;
   getScenario(): WorldScenario;
   subscribe(type: WorldEventType | '*', handler: (event: WorldEvent) => void): () => void;
+  subscribeState(handler: (world: WorldState) => void): () => void;
   dispatch(command: WorldCommand): Promise<CommandResult>;
   registerDialogueProvider(provider: DialogueProvider): () => void;
   createDialogue(speakerId: string, listenerId: string): Promise<DialogueLine>;
@@ -22,9 +23,16 @@ export function createRuntime(initialWorld: WorldState): HumanTerrariumApi & { r
   let world = initialWorld;
   let dialogueProvider: DialogueProvider | undefined;
   const listeners = new Map<WorldEventType | '*', Set<(event: WorldEvent) => void>>();
+  const stateListeners = new Set<(world: WorldState) => void>();
   function publish(event: WorldEvent): void {
     listeners.get(event.type)?.forEach((listener) => listener(structuredClone(event)));
     listeners.get('*')?.forEach((listener) => listener(structuredClone(event)));
+  }
+  function publishNewEvents(knownEventIds: Set<string>): void {
+    world.events.filter((event) => !knownEventIds.has(event.id)).forEach(publish);
+  }
+  function notifyState(): void {
+    stateListeners.forEach((listener) => listener(structuredClone(world)));
   }
   return {
     getWorldSnapshot: () => structuredClone(world),
@@ -44,10 +52,15 @@ export function createRuntime(initialWorld: WorldState): HumanTerrariumApi & { r
       listeners.set(type, bucket);
       return () => bucket.delete(handler);
     },
+    subscribeState: (handler) => {
+      stateListeners.add(handler);
+      return () => stateListeners.delete(handler);
+    },
     dispatch: async (command) => {
-      const eventCount = world.events.length;
+      const knownEventIds = new Set(world.events.map((event) => event.id));
       const result = applyCommand(world, command);
-      world.events.slice(eventCount).forEach(publish);
+      publishNewEvents(knownEventIds);
+      notifyState();
       return result;
     },
     registerDialogueProvider: (provider) => {
@@ -63,22 +76,27 @@ export function createRuntime(initialWorld: WorldState): HumanTerrariumApi & { r
     advance: (ticks = 1) => {
       const count = Math.max(0, Math.min(32, Math.floor(ticks)));
       for (let index = 0; index < count; index += 1) {
-        const eventCount = world.events.length;
+        const knownEventIds = new Set(world.events.map((event) => event.id));
         stepWorld(world);
-        world.events.slice(eventCount).forEach(publish);
+        publishNewEvents(knownEventIds);
       }
       publish({ id: `tick-${world.tick}`, tick: world.tick, type: 'tick', title: '模拟推进', detail: `${count} 个时间片`, residentIds: [] });
+      notifyState();
       return structuredClone(world);
     },
     exportSave: async () => createSave(world),
     importSave: async (data) => {
       try {
         world = parseSave(data);
+        notifyState();
         return { ok: true };
       } catch (error) {
         return { ok: false, code: 'INVALID_COMMAND', message: error instanceof Error ? error.message : '存档无效' };
       }
     },
-    replaceWorld: (next) => { world = next; },
+    replaceWorld: (next) => {
+      world = next;
+      notifyState();
+    },
   };
 }

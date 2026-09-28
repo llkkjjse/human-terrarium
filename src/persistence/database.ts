@@ -30,7 +30,14 @@ export class SaveDatabase {
   async save(world: WorldState, savedAt = Date.now()): Promise<void> {
     await this.database.transaction('rw', this.database.saves, async () => {
       const current = await this.database.saves.get('primary');
-      if (current) await this.database.saves.put({ ...current, slot: 'backup' });
+      if (current) {
+        try {
+          parseSave(current);
+          await this.database.saves.put({ ...current, slot: 'backup' });
+        } catch {
+          // A corrupt primary must never replace the last known-good backup.
+        }
+      }
       await this.database.saves.put({ ...createSave(world, savedAt), slot: 'primary' });
     });
   }
@@ -62,4 +69,3 @@ export class SaveDatabase {
     await this.database.delete();
   }
 }
-

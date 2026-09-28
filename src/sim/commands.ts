@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { getPreset } from './scenarios';
 import type { Opportunity, Policy, WorldEvent, WorldState } from './types';
 
 const parameterPaths = [
@@ -31,6 +32,7 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('upsert-policy'), policy: policySchema }),
   z.object({ type: z.literal('remove-policy'), policyId: z.string().min(1) }),
   z.object({ type: z.literal('create-opportunity'), opportunity: opportunitySchema }),
+  z.object({ type: z.literal('apply-scenario-preset'), presetId: z.enum(['stable-modern', 'economic-downturn', 'industrial-upgrade', 'automated-future']) }),
   z.object({ type: z.literal('set-time-scale'), value: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]) }),
   z.object({ type: z.literal('focus-resident'), residentId: z.string().nullable() }),
 ]);
@@ -39,11 +41,12 @@ export type WorldCommand = z.infer<typeof commandSchema>;
 export type CommandResult = { ok: true; causalId?: string } | { ok: false; code: 'INVALID_COMMAND' | 'NOT_FOUND'; message: string };
 
 function causalId(world: WorldState): string {
-  return `cause-${world.tick}-${world.events.length + 1}`;
+  return `cause-${world.tick}-${world.nextEventSequence + 1}`;
 }
 
 function event(world: WorldState, value: Omit<WorldEvent, 'id' | 'tick'>): void {
-  world.events.push({ ...value, id: `event-${world.tick}-${world.events.length + 1}`, tick: world.tick });
+  world.nextEventSequence += 1;
+  world.events.push({ ...value, id: `event-${world.nextEventSequence}`, tick: world.tick });
   if (world.events.length > 240) world.events.splice(0, world.events.length - 240);
 }
 
@@ -100,6 +103,18 @@ export function applyCommand(world: WorldState, raw: unknown): CommandResult {
     };
     world.scenario.opportunities.push(opportunity);
     event(world, { type: 'opportunity', title: '新的社会机遇', detail: opportunity.name, residentIds: [], causalId: id });
+    return { ok: true, causalId: id };
+  }
+  if (command.type === 'apply-scenario-preset') {
+    const id = causalId(world);
+    world.scenario = getPreset(command.presetId);
+    event(world, {
+      type: 'system',
+      title: '时代背景已切换',
+      detail: `社区进入“${world.scenario.name}”，居民与既有历史继续演进。`,
+      residentIds: [],
+      causalId: id,
+    });
     return { ok: true, causalId: id };
   }
   if (command.type === 'set-time-scale') {
