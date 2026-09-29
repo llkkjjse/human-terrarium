@@ -81,9 +81,10 @@ export class DeepSeekService {
 
   async requestJson<T>(system: string, input: unknown, schema: z.ZodType<T>): Promise<AiResult<T>> {
     const startedAt = this.now();
+    const responseSchema = z.toJSONSchema(schema);
     const messages: Array<{ role: 'system' | 'user'; content: string }> = [
       { role: 'system', content: system },
-      { role: 'user', content: JSON.stringify(input) },
+      { role: 'user', content: JSON.stringify({ input, responseSchema }) },
     ];
     const first = await this.complete(messages);
     let completion = first;

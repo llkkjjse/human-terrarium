@@ -40,4 +40,36 @@ describe('ordinary resident life', () => {
     expect(related.length).toBeGreaterThan(0);
     expect(related.every((event) => event.causalId === 'illness-candidate')).toBe(true);
   });
+
+  test('applies an enabled policy modifier to authoritative health resolution', () => {
+    const world = resolverWorld();
+    world.blueprint.parameters.environment.epidemicRisk = 0;
+    world.rngState = 123456;
+    const prepared = prepareFrame(world, [{
+      id: 'policy-public-health',
+      type: 'policy',
+      originalText: 'Temporarily increase epidemic exposure for a deterministic policy test.',
+      payload: {
+        policy: {
+          id: 'public-health-test',
+          name: 'Public health test',
+          description: 'Changes epidemic exposure.',
+          enabled: true,
+          intensity: 100,
+          modifiers: [{ path: 'environment.epidemicRisk', delta: 100 }],
+        },
+      },
+    }]);
+    const response = frameResponse(prepared.world);
+    response.candidateEvents.push({
+      id: 'policy-illness-candidate',
+      type: 'illness-risk',
+      residentIds: [world.residents[0].id],
+      description: 'A respiratory infection is spreading.',
+    });
+
+    const result = resolveFrame({ prepared, response, granularity: '1d' });
+
+    expect(result.world.residents[0].healthConditions).toContain('respiratory infection');
+  });
 });

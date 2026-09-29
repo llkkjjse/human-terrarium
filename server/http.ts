@@ -67,6 +67,12 @@ export function createGateway(dependencies: GatewayDependencies): Server {
       send(response, 404, { error: '未找到接口' });
       return;
     }
+    const contentType = request.headers['content-type']?.toLowerCase() ?? '';
+    if (!contentType.startsWith('application/json')) {
+      request.resume();
+      send(response, 415, { error: '仅接受 application/json' });
+      return;
+    }
     const contentLength = Number(request.headers['content-length'] ?? 0);
     if (contentLength > maxBodyBytes) {
       request.resume();

@@ -176,6 +176,19 @@ function applyPolicy(world: WorldStateV2, change: Extract<QueuedWorldChange, { t
   }
 }
 
+function applyEffectivePolicyParameters(world: WorldStateV2): void {
+  const effective = structuredClone(world.blueprint.parameters);
+  for (const policy of world.blueprint.policies.filter((item) => item.enabled)) {
+    for (const modifier of policy.modifiers) {
+      const [group, key] = modifier.path.split('.');
+      const bucket = effective[group as keyof typeof effective] as unknown as Record<string, number> | undefined;
+      if (!bucket || typeof bucket[key] !== 'number') continue;
+      bucket[key] = Math.max(0, Math.min(100, bucket[key] + modifier.delta * policy.intensity / 100));
+    }
+  }
+  world.scenario.parameters = effective;
+}
+
 export function prepareFrame(world: WorldStateV2, changes: QueuedWorldChange[]): PreparedFrame {
   const next = structuredClone(world);
   const copiedChanges = structuredClone(changes);
@@ -185,6 +198,7 @@ export function prepareFrame(world: WorldStateV2, changes: QueuedWorldChange[]):
     absoluteEvents.push(applyAbsolute(next, change, locks));
   }
   for (const change of copiedChanges.filter((item) => item.type === 'policy')) applyPolicy(next, change);
+  applyEffectivePolicyParameters(next);
   for (const change of copiedChanges.filter((item) => item.type === 'resident-edit')) applyResidentEdit(next, change);
   const appliedIds = new Set(copiedChanges.map((change) => change.id));
   next.queuedChanges = next.queuedChanges.filter((change) => !appliedIds.has(change.id));

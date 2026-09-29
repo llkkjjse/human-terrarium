@@ -69,6 +69,23 @@ describe('loopback AI gateway', () => {
     expect(service.compilePolicy).not.toHaveBeenCalled();
   });
 
+  test('rejects simple cross-origin content types before they can spend AI quota', async () => {
+    const service = fakeService();
+    const server = createGateway({ service });
+    servers.push(server);
+    await listenGateway(server, 0);
+    const address = server.address() as AddressInfo;
+
+    const response = await fetch('http://127.0.0.1:' + address.port + '/api/frame/run', {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ frame: 'malicious-simple-request' }),
+    });
+
+    expect(response.status).toBe(415);
+    expect(service.runFrame).not.toHaveBeenCalled();
+  });
+
   test('redacts sensitive upstream errors', async () => {
     const service = fakeService();
     service.runFrame.mockRejectedValueOnce(new Error('upstream rejected sk-private-key'));

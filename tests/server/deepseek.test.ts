@@ -33,6 +33,13 @@ describe('DeepSeekService', () => {
       model: 'deepseek-flash',
       response_format: { type: 'json_object' },
     });
+    const userMessage = JSON.parse(request.messages[1].content);
+    expect(userMessage.input).toEqual({ question: 'hello' });
+    expect(userMessage.responseSchema).toMatchObject({
+      type: 'object',
+      properties: { answer: { type: 'string' } },
+      required: ['answer'],
+    });
     expect(fetcher.mock.calls[0][1]?.headers).toMatchObject({ authorization: 'Bearer sk-test-secret' });
   });
 

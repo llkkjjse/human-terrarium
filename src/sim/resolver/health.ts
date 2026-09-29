@@ -15,8 +15,8 @@ export function resolveHealth(context: ResolverContext): void {
       const resident = context.world.residents.find((item) => item.id === residentId);
       if (!resident) continue;
       const environmentalRisk = candidate.type === 'illness-risk'
-        ? context.world.blueprint.parameters.environment.epidemicRisk
-        : context.world.blueprint.parameters.environment.disasterRisk;
+        ? context.world.scenario.parameters.environment.epidemicRisk
+        : context.world.scenario.parameters.environment.disasterRisk;
       const threshold = Math.min(0.98, Math.max(0.02, (environmentalRisk + 30 - resident.abilities.constitution * 2) / 100)
         * Math.max(1, context.hours / 6));
       if (context.random() > threshold) continue;
