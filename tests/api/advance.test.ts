@@ -1,14 +1,13 @@
 import { expect, test, vi } from 'vitest';
-import { createRuntime } from '../../src/api/runtime';
+import { advanceLegacyWorld } from '../../src/api/runtime';
 import { getPreset } from '../../src/sim/scenarios';
 import { createWorld } from '../../src/sim/world';
 
-test('advances simulation through the runtime and publishes a tick summary', () => {
-  const runtime = createRuntime(createWorld({ seed: 140, scenario: getPreset('stable-modern') }));
+test('keeps fixed-tick advancement as an explicitly legacy migration helper', () => {
+  const world = createWorld({ seed: 140, scenario: getPreset('stable-modern') });
   const listener = vi.fn();
-  runtime.subscribe('tick', listener);
 
-  const snapshot = runtime.advance(4);
+  const snapshot = advanceLegacyWorld(world, 4, listener);
 
   expect(snapshot.tick).toBe(4);
   expect(listener).toHaveBeenCalledWith(expect.objectContaining({ type: 'tick', tick: 4 }));
