@@ -22,7 +22,21 @@ export const scenarioSchema = z.object({
     modifiers: z.array(z.object({ path: z.string(), delta: z.number().min(-100).max(100) })),
   })),
   opportunities: z.array(z.object({
-    id: z.string(), name: z.string(), target: z.string(), remainingTicks: z.number().int().nonnegative(),
+    id: z.string(),
+    name: z.string(),
+    target: z.enum([
+      'residential',
+      'commerce',
+      'commons',
+      'municipal',
+      'supply',
+      'care',
+      'maintenance',
+      'safety',
+      'culture',
+      'everyone',
+    ]),
+    remainingTicks: z.number().int().nonnegative(),
     prosperityBoost: z.number(), causalId: z.string(),
   })),
 });

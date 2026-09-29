@@ -1,4 +1,5 @@
 import { describe, expect, test } from 'vitest';
+import { z } from 'zod';
 import { createGeneratedWorld } from '../../src/sim/generation';
 import { worldStateV2Schema } from '../../src/sim/schema';
 import { getPreset } from '../../src/sim/scenarios';
@@ -22,6 +23,23 @@ function validWorld(): WorldStateV2 {
 }
 
 describe('worldStateV2Schema', () => {
+  test('converts the complete world contract to JSON Schema for DeepSeek', () => {
+    const jsonSchema = z.toJSONSchema(worldStateV2Schema);
+
+    expect(jsonSchema).toMatchObject({
+      type: 'object',
+      properties: {
+        scenario: {
+          type: 'object',
+          properties: {
+            parameters: { type: 'object' },
+            policies: { type: 'array' },
+          },
+        },
+      },
+    });
+  });
+
   test('accepts a finite player-edited ability above twenty', () => {
     const world = validWorld();
     world.residents[0].abilities.strength = 27;

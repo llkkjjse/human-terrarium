@@ -119,7 +119,7 @@ export const worldStateV2Schema: z.ZodType<WorldStateV2> = z.object({
   day: z.number().int().positive(),
   minuteOfDay: z.number().int().min(0).max(1439),
   timeScale: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]),
-  scenario: z.custom<WorldStateV2['scenario']>((value) => scenarioSchema.safeParse(value).success),
+  scenario: scenarioSchema,
   residents: z.array(resident).length(24),
   districts: z.array(district).min(1),
   metrics: z.object({

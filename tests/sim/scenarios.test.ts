@@ -23,5 +23,22 @@ describe('era scenarios', () => {
 
     expect(result.success).toBe(false);
   });
+
+  test('rejects an opportunity aimed at an unknown target', () => {
+    const scenario = getPreset('stable-modern');
+    const result = scenarioSchema.safeParse({
+      ...scenario,
+      opportunities: [{
+        id: 'invalid-target',
+        name: 'Invalid target',
+        target: 'somewhere-else',
+        remainingTicks: 1,
+        prosperityBoost: 5,
+        causalId: 'test',
+      }],
+    });
+
+    expect(result.success).toBe(false);
+  });
 });
 
