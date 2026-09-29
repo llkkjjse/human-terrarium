@@ -20,5 +20,17 @@ describe('IndexedDB save slots', () => {
     expect((await database.load()).seed).toBe(32);
     expect((await database.loadBackup())?.seed).toBe(31);
   });
+
+  test('loads a legacy save as a validated v2 world', async () => {
+    const database = new SaveDatabase(`terrarium-${Math.random()}`, { indexedDB, IDBKeyRange });
+    databases.push(database);
+    await database.save(createWorld({ seed: 33, scenario: getPreset('stable-modern') }), 3_000);
+
+    const migrated = await database.loadV2();
+
+    expect(migrated.schemaVersion).toBe(2);
+    expect(migrated.residents).toHaveLength(24);
+    expect(migrated.seed).toBe(33);
+  });
 });
 

@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
-import type { WorldState } from '../sim/types';
+import type { RenderableWorld } from '../game/mapModel';
 
-export default function GameCanvas({ world, selectedId, onSelect }: { world: WorldState; selectedId: string | null; onSelect(id: string): void }) {
+export default function GameCanvas({ world, selectedId, onSelect }: { world: RenderableWorld; selectedId: string | null; onSelect(id: string): void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const handleRef = useRef<Awaited<ReturnType<typeof import('../game/createGame')['createTerrariumGame']>> | null>(null);
 

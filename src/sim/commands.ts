@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { getPreset } from './scenarios';
-import type { Opportunity, Policy, WorldEvent, WorldState } from './types';
+import type { Opportunity, Policy, QueuedWorldChange, WorldEvent, WorldState, WorldStateV2 } from './types';
 
 const parameterPaths = [
   'economy.prosperity', 'economy.prices', 'economy.wages', 'economy.housingPressure', 'economy.unemployment', 'economy.inequality',
@@ -26,6 +26,31 @@ const opportunitySchema = z.object({
   prosperityBoost: z.number().min(-50).max(50),
 });
 
+const abilityEditSchema = z.object({
+  strength: z.number().finite().optional(),
+  dexterity: z.number().finite().optional(),
+  constitution: z.number().finite().optional(),
+  intelligence: z.number().finite().optional(),
+  wisdom: z.number().finite().optional(),
+  charisma: z.number().finite().optional(),
+}).partial();
+
+const residentEditSchema = z.object({
+  name: z.string().min(1).max(80).optional(),
+  age: z.number().int().min(0).max(130).optional(),
+  abilities: abilityEditSchema.optional(),
+  finances: z.object({
+    cash: z.number().finite().optional(),
+    income: z.number().finite().optional(),
+    debt: z.number().finite().optional(),
+  }).partial().optional(),
+  appearance: z.object({
+    clothingQuality: z.number().finite().min(0).max(100).optional(),
+    conspicuousness: z.number().finite().min(0).max(100).optional(),
+    lowProfile: z.number().finite().min(0).max(100).optional(),
+  }).partial().optional(),
+});
+
 export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('update-era-parameter'), path: z.enum(parameterPaths), value: z.number().min(0).max(100) }),
   z.object({ type: z.literal('update-scenario-metadata'), name: z.string().min(1).max(40), description: z.string().max(240) }),
@@ -35,22 +60,51 @@ export const commandSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('apply-scenario-preset'), presetId: z.enum(['stable-modern', 'economic-downturn', 'industrial-upgrade', 'automated-future']) }),
   z.object({ type: z.literal('set-time-scale'), value: z.union([z.literal(0), z.literal(1), z.literal(2), z.literal(4)]) }),
   z.object({ type: z.literal('focus-resident'), residentId: z.string().nullable() }),
+  z.object({ type: z.literal('set-personal-goal'), residentId: z.string().min(1), goal: z.string().max(1_000) }),
+  z.object({ type: z.literal('set-custom-trait'), residentId: z.string().min(1), trait: z.string().max(1_000) }),
+  z.object({ type: z.literal('edit-resident'), residentId: z.string().min(1), patch: residentEditSchema }),
+  z.object({
+    type: z.literal('queue-absolute-event'),
+    event: z.object({
+      id: z.string().min(1),
+      originalText: z.string().min(1),
+      payload: z.record(z.string(), z.unknown()),
+    }),
+    residentId: z.string().min(1).optional(),
+  }),
+  z.object({
+    type: z.literal('implement-policy'),
+    originalText: z.string().min(1),
+    policy: policySchema,
+  }),
 ]);
 
 export type WorldCommand = z.infer<typeof commandSchema>;
 export type CommandResult = { ok: true; causalId?: string } | { ok: false; code: 'INVALID_COMMAND' | 'NOT_FOUND'; message: string };
 
-function causalId(world: WorldState): string {
+type MutableWorld = WorldState | WorldStateV2;
+
+function isV2(world: MutableWorld): world is WorldStateV2 {
+  return world.schemaVersion === 2;
+}
+
+function causalId(world: MutableWorld): string {
   return `cause-${world.tick}-${world.nextEventSequence + 1}`;
 }
 
-function event(world: WorldState, value: Omit<WorldEvent, 'id' | 'tick'>): void {
+function event(world: MutableWorld, value: Omit<WorldEvent, 'id' | 'tick'>): void {
   world.nextEventSequence += 1;
   world.events.push({ ...value, id: `event-${world.nextEventSequence}`, tick: world.tick });
   if (world.events.length > 240) world.events.splice(0, world.events.length - 240);
 }
 
-export function applyCommand(world: WorldState, raw: unknown): CommandResult {
+function queueChange(world: WorldStateV2, change: QueuedWorldChange): void {
+  const index = world.queuedChanges.findIndex((item) => item.id === change.id);
+  if (index >= 0) world.queuedChanges[index] = change;
+  else world.queuedChanges.push(change);
+}
+
+export function applyCommand(world: MutableWorld, raw: unknown): CommandResult {
   const parsed = commandSchema.safeParse(raw);
   if (!parsed.success) return { ok: false, code: 'INVALID_COMMAND', message: parsed.error.issues[0]?.message ?? 'Invalid command' };
   const command = parsed.data;
@@ -121,8 +175,79 @@ export function applyCommand(world: WorldState, raw: unknown): CommandResult {
     world.timeScale = command.value;
     return { ok: true };
   }
-  if (command.residentId && !world.residents.some((resident) => resident.id === command.residentId)) {
+  if ('residentId' in command && command.residentId && !world.residents.some((resident) => resident.id === command.residentId)) {
     return { ok: false, code: 'NOT_FOUND', message: 'Resident not found' };
+  }
+  if (command.type === 'focus-resident') {
+    if (isV2(world)) world.selectedResidentId = command.residentId;
+    return { ok: true };
+  }
+  if (command.type === 'set-personal-goal' || command.type === 'set-custom-trait' || command.type === 'edit-resident') {
+    if (!isV2(world)) {
+      return { ok: false, code: 'INVALID_COMMAND', message: 'This intervention requires a v2 AI world.' };
+    }
+    const id = causalId(world);
+    const payload = command.type === 'set-personal-goal'
+      ? { playerGoal: command.goal }
+      : command.type === 'set-custom-trait'
+        ? { customTrait: command.trait }
+        : command.patch;
+    queueChange(world, {
+      id: `change-${id}`,
+      type: 'resident-edit',
+      residentId: command.residentId,
+      payload: structuredClone(payload),
+    });
+    event(world, {
+      type: 'system',
+      title: command.type === 'set-personal-goal'
+        ? 'Player goal committed'
+        : command.type === 'set-custom-trait'
+          ? 'Custom trait committed'
+          : 'Resident edit committed',
+      detail: command.type === 'set-personal-goal'
+        ? command.goal
+        : command.type === 'set-custom-trait'
+          ? command.trait
+          : 'The player committed a resident data edit.',
+      residentIds: [command.residentId],
+      causalId: id,
+    });
+    return { ok: true, causalId: id };
+  }
+  if (command.type === 'queue-absolute-event') {
+    if (!isV2(world)) {
+      return { ok: false, code: 'INVALID_COMMAND', message: 'This intervention requires a v2 AI world.' };
+    }
+    queueChange(world, {
+      ...structuredClone(command.event),
+      type: 'absolute-event',
+      payload: {
+        ...structuredClone(command.event.payload),
+        ...(command.residentId ? { residentId: command.residentId } : {}),
+      },
+    });
+    return { ok: true, causalId: command.event.id };
+  }
+  if (command.type === 'implement-policy') {
+    if (!isV2(world)) {
+      return { ok: false, code: 'INVALID_COMMAND', message: 'This intervention requires a v2 AI world.' };
+    }
+    const id = causalId(world);
+    queueChange(world, {
+      id: `change-${id}`,
+      type: 'policy',
+      originalText: command.originalText,
+      payload: { policy: structuredClone(command.policy) },
+    });
+    event(world, {
+      type: 'policy',
+      title: 'Policy implementation committed',
+      detail: command.policy.name,
+      residentIds: [],
+      causalId: id,
+    });
+    return { ok: true, causalId: id };
   }
   return { ok: true };
 }

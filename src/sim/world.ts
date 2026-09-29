@@ -1,6 +1,8 @@
 import { nextRandom } from './rng';
 import type { Activity, District, DistrictId, Needs, Personality, Resident, Role, WorldScenario, WorldState } from './types';
 
+export { createGeneratedWorld, deriveSocialClass } from './generation';
+
 const roles: Role[] = ['supply', 'commerce', 'care', 'maintenance', 'safety', 'culture'];
 const names = ['陈晨', '林溪', '周遥', '许宁', '韩星', '沈嘉', '陆原', '唐雨', '顾川', '叶青', '苏禾', '秦安', '江澄', '罗夏', '温言', '程野', '方圆', '乔木', '白露', '何夕', '杜若', '孟秋', '袁朗', '夏竹'];
 const colors = ['#f3a683', '#f7d794', '#778beb', '#e77f67', '#cf6a87', '#63cdda', '#ea8685', '#596275'];

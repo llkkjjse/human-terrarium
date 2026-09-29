@@ -1,42 +1,105 @@
-import { StrictMode } from 'react';
+import { StrictMode, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { createRuntime, type HumanTerrariumApi } from './api/runtime';
-import { resolveBootState } from './persistence/boot';
-import { SaveDatabase } from './persistence/database';
-import { getPreset } from './sim/scenarios';
-import { createWorld } from './sim/world';
-import { TerrariumApp } from './ui/App';
+import { BrowserAiClient } from './ai/client';
+import type { AiUsage } from './ai/contracts';
+import { createRuntime, type AiHumanTerrariumApi } from './api/runtime';
+import type { RuntimeDependencies } from './api/frame-controller';
+import { resolveV2BootState, type BootStateV2 } from './persistence/boot';
+import { SaveDatabase, type HistoryBatch } from './persistence/database';
+import type { WorldStateV2 } from './sim/types';
+import { AiTerrariumApp } from './ui/App';
+import { WorldSetup } from './ui/WorldSetup';
 import './styles.css';
 
 declare global {
   interface Window {
-    HumanTerrarium: { v1: HumanTerrariumApi };
+    HumanTerrarium?: { v2: AiHumanTerrariumApi };
   }
+}
+
+const emptyHistory = (): HistoryBatch => ({
+  lifeLogs: [],
+  conversations: [],
+  events: [],
+  knowledge: [],
+  memories: [],
+});
+
+function Root({
+  database,
+  aiClient,
+  bootState,
+  dependencies,
+  initialRuntime,
+}: {
+  database: SaveDatabase;
+  aiClient: BrowserAiClient;
+  bootState: BootStateV2;
+  dependencies: RuntimeDependencies;
+  initialRuntime: AiHumanTerrariumApi | null;
+}) {
+  const [runtime, setRuntime] = useState<AiHumanTerrariumApi | null>(initialRuntime);
+
+  const confirmWorld = async (input: WorldStateV2, usage: AiUsage) => {
+    const world = structuredClone(input);
+    world.lastSavedAt = Date.now();
+    if (bootState.canPersist) {
+      await database.commitFrame(world, emptyHistory(), {
+        id: `ai-run-${world.blueprint.id}-generation-${Date.now()}`,
+        worldId: world.blueprint.id,
+        frameStartTick: world.tick,
+        status: 'success',
+        durationMs: usage.durationMs,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        estimatedCost: usage.estimatedCost,
+      });
+    }
+    const nextRuntime = createRuntime(world, dependencies);
+    window.HumanTerrarium = { v2: nextRuntime };
+    setRuntime(nextRuntime);
+  };
+
+  if (!runtime) {
+    return <WorldSetup aiClient={aiClient} onConfirm={confirmWorld} notice={bootState.notice} />;
+  }
+  return (
+    <AiTerrariumApp
+      runtime={runtime}
+      aiClient={aiClient}
+      historyStore={database}
+      initialNotice={bootState.notice}
+    />
+  );
 }
 
 async function boot(): Promise<void> {
   const database = new SaveDatabase();
-  const bootState = await resolveBootState(
-    database,
-    () => createWorld({ seed: Math.floor(Math.random() * 0x7fffffff), scenario: getPreset('stable-modern') }),
-  );
-
-  const runtime = createRuntime(bootState.world);
-  window.HumanTerrarium = { v1: runtime };
-  const root = createRoot(document.getElementById('root')!);
-  root.render(<StrictMode><TerrariumApp runtime={runtime} initialNotice={bootState.notice} /></StrictMode>);
-
-  if (bootState.canPersist) {
-    const persist = () => {
-      void database.save(runtime.getWorldSnapshot()).catch(() => {
-        window.dispatchEvent(new CustomEvent('terrarium:persistence-error', {
-          detail: '自动保存失败，本次进度尚未写入浏览器存储。',
-        }));
-      });
+  const aiClient = new BrowserAiClient();
+  const bootState = await resolveV2BootState(database);
+  const frameStore: RuntimeDependencies['frameStore'] = bootState.canPersist
+    ? database
+    : {
+      commitFrame: async () => {
+        throw new Error('Persistence is disabled to protect the unreadable existing save.');
+      },
     };
-    window.setInterval(persist, 30_000);
-    window.addEventListener('pagehide', persist);
-  }
+  const dependencies: RuntimeDependencies = { aiClient, frameStore };
+  const initialRuntime = bootState.world ? createRuntime(bootState.world, dependencies) : null;
+  if (initialRuntime) window.HumanTerrarium = { v2: initialRuntime };
+
+  const root = createRoot(document.getElementById('root')!);
+  root.render(
+    <StrictMode>
+      <Root
+        database={database}
+        aiClient={aiClient}
+        bootState={bootState}
+        dependencies={dependencies}
+        initialRuntime={initialRuntime}
+      />
+    </StrictMode>,
+  );
 }
 
 void boot();

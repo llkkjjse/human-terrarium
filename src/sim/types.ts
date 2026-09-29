@@ -195,3 +195,112 @@ export interface WorldState {
   nextEventSequence: number;
   lastSavedAt: number;
 }
+
+export type FrameGranularity = '1h' | '12h' | '1d';
+
+export interface AbilityScores {
+  strength: number;
+  dexterity: number;
+  constitution: number;
+  intelligence: number;
+  wisdom: number;
+  charisma: number;
+}
+
+export type SocialClass = 'precarious' | 'working' | 'middle' | 'affluent' | 'elite';
+export type AssetKind = 'cash' | 'home' | 'vehicle' | 'item';
+
+export interface Asset {
+  id: string;
+  ownerId: string;
+  kind: AssetKind;
+  name: string;
+  value: number;
+  visibleValue: number;
+  districtId?: DistrictId;
+}
+
+export interface KnowledgeRecord {
+  id: string;
+  residentId: string;
+  subjectId: string;
+  topic: 'wealth' | 'routine' | 'relationship' | 'event' | 'reputation';
+  claim: string;
+  source: 'observation' | 'conversation' | 'work' | 'public' | 'investigation';
+  confidence: number;
+  lastUpdatedTick: number;
+  rumor: boolean;
+}
+
+export interface SocietyBlueprint {
+  schemaVersion: 2;
+  id: string;
+  name: string;
+  description: string;
+  sourceText: string;
+  parameters: EraParameters;
+  policies: Policy[];
+  districts: District[];
+  social: {
+    inequality: number;
+    mobility: number;
+    trust: number;
+    corruption: number;
+    crimePressure: number;
+    gossip: number;
+  };
+}
+
+export interface ResidentFinances {
+  cash: number;
+  income: number;
+  debt: number;
+}
+
+export interface ResidentAppearance {
+  clothingQuality: number;
+  conspicuousness: number;
+  lowProfile: number;
+}
+
+export interface ResidentSeed {
+  name?: string;
+  age?: number;
+  role?: Role;
+  abilities?: Partial<AbilityScores>;
+  finances?: Partial<ResidentFinances>;
+  appearance?: Partial<ResidentAppearance>;
+}
+
+export interface ResidentV2 extends Resident {
+  abilities: AbilityScores;
+  customTrait: string;
+  finances: ResidentFinances;
+  appearance: ResidentAppearance;
+  assetIds: string[];
+  realClass: SocialClass;
+  perceivedClass: SocialClass;
+  reputation: number;
+  playerGoal: string;
+  personalGoal: string;
+  currentPlan: string[];
+  knowledgeIds: string[];
+  legalStatus: 'clear' | 'suspect' | 'wanted' | 'detained' | 'convicted';
+  healthConditions: string[];
+}
+
+export type QueuedWorldChange =
+  | { id: string; type: 'absolute-event'; originalText: string; payload: Record<string, unknown> }
+  | { id: string; type: 'policy'; originalText: string; payload: Record<string, unknown> }
+  | { id: string; type: 'resident-edit'; residentId: string; payload: Record<string, unknown> };
+
+export interface WorldStateV2 extends Omit<WorldState, 'schemaVersion' | 'residents'> {
+  schemaVersion: 2;
+  blueprint: SocietyBlueprint;
+  residents: ResidentV2[];
+  assets: Asset[];
+  knowledge: KnowledgeRecord[];
+  frameGranularity: FrameGranularity;
+  queuedChanges: QueuedWorldChange[];
+  selectedResidentId: string | null;
+}

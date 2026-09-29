@@ -1,11 +1,11 @@
 import Phaser from 'phaser';
-import { buildMapModel, type BuildingModel } from './mapModel';
-import type { WorldState } from '../sim/types';
+import { buildMapModel, type BuildingModel, type RenderableWorld, type ResidentMapModel } from './mapModel';
 
 interface ResidentView {
   container: Phaser.GameObjects.Container;
   ring: Phaser.GameObjects.Arc;
   activity: Phaser.GameObjects.Text;
+  cue: Phaser.GameObjects.Text;
 }
 
 function drawBuilding(scene: Phaser.Scene, building: BuildingModel): void {
@@ -36,7 +36,12 @@ function drawBuilding(scene: Phaser.Scene, building: BuildingModel): void {
   }
 }
 
-function createResident(scene: Phaser.Scene, resident: WorldState['residents'][number], onSelect: (id: string) => void): ResidentView {
+function createResident(
+  scene: Phaser.Scene,
+  resident: RenderableWorld['residents'][number],
+  cueModel: ResidentMapModel,
+  onSelect: (id: string) => void,
+): ResidentView {
   const container = scene.add.container(resident.x, resident.y).setDepth(20).setSize(28, 44).setInteractive({ useHandCursor: true });
   const shadow = scene.add.ellipse(2, 18, 30, 10, 0x2e332e, 0.18);
   const ring = scene.add.circle(0, 0, 24).setStrokeStyle(3, 0xe9c46a, 0).setFillStyle(0xffffff, 0);
@@ -44,16 +49,17 @@ function createResident(scene: Phaser.Scene, resident: WorldState['residents'][n
   const head = scene.add.circle(0, -12, 10, 0xf0c8a8).setStrokeStyle(2, 0x604c41, 0.45);
   const hair = scene.add.arc(0, -15, 9, 190, 350, false, 0x51433e);
   const activity = scene.add.text(0, -39, '', { fontFamily: 'Microsoft YaHei, sans-serif', fontSize: '13px', color: '#3f443e', backgroundColor: '#f8f3e8dd', padding: { x: 5, y: 3 } }).setOrigin(0.5);
-  container.add([shadow, ring, body, head, hair, activity]);
+  const cue = scene.add.text(0, 28, cueModel.statusCue, { fontFamily: 'Consolas, monospace', fontSize: '10px', color: '#554f48', backgroundColor: '#f8f3e8cc', padding: { x: 3, y: 1 } }).setOrigin(0.5);
+  container.add([shadow, ring, body, head, hair, activity, cue]);
   container.on('pointerdown', (pointer: Phaser.Input.Pointer) => { pointer.event.stopPropagation(); onSelect(resident.id); });
-  return { container, ring, activity };
+  return { container, ring, activity, cue };
 }
 
-const activityLabels: Record<WorldState['residents'][number]['activity'], string> = {
+const activityLabels: Record<RenderableWorld['residents'][number]['activity'], string> = {
   idle: '…', sleep: '睡', eat: '食', work: '职', socialize: '聊', relax: '闲', 'seek-care': '医', commute: '行',
 };
 
-export function createTerrariumGame(container: HTMLElement, initialWorld: WorldState, onSelect: (id: string) => void) {
+export function createTerrariumGame(container: HTMLElement, initialWorld: RenderableWorld, onSelect: (id: string) => void) {
   let world = initialWorld;
   let selectedId: string | null = null;
   let residentViews = new Map<string, ResidentView>();
@@ -74,7 +80,11 @@ export function createTerrariumGame(container: HTMLElement, initialWorld: WorldS
       roads.fillStyle(0xe8dfcf).fillRect(690, 0, 60, 960).fillRect(0, 450, 1440, 60);
       roads.lineStyle(2, 0xc8baa5, 0.75).lineBetween(720, 0, 720, 960).lineBetween(0, 480, 1440, 480);
       model.buildings.forEach((building) => drawBuilding(this, building));
-      residentViews = new Map(world.residents.map((resident) => [resident.id, createResident(this, resident, onSelect)]));
+      const cueByResident = new Map(model.residents.map((resident) => [resident.id, resident]));
+      residentViews = new Map(world.residents.map((resident) => [
+        resident.id,
+        createResident(this, resident, cueByResident.get(resident.id)!, onSelect),
+      ]));
 
       let dragging = false;
       let lastX = 0;
@@ -95,16 +105,18 @@ export function createTerrariumGame(container: HTMLElement, initialWorld: WorldS
     }
 
     syncResidents() {
+      const cueByResident = new Map(buildMapModel(world).residents.map((resident) => [resident.id, resident]));
       for (const resident of world.residents) {
         let view = residentViews.get(resident.id);
         if (!view) {
-          view = createResident(this, resident, onSelect);
+          view = createResident(this, resident, cueByResident.get(resident.id)!, onSelect);
           residentViews.set(resident.id, view);
         }
         this.tweens.add({ targets: view.container, x: resident.x, y: resident.y, duration: 900, ease: 'Sine.easeInOut' });
         view.activity.setText(activityLabels[resident.activity]);
         view.activity.setVisible(resident.activity === 'socialize' || resident.activity === 'eat' || resident.activity === 'seek-care');
         view.ring.setStrokeStyle(3, 0xe9c46a, selectedId === resident.id ? 1 : 0);
+        view.cue.setText(cueByResident.get(resident.id)?.statusCue ?? '');
         view.container.setAlpha(resident.alive ? 1 : 0.25);
       }
     }
@@ -124,7 +136,7 @@ export function createTerrariumGame(container: HTMLElement, initialWorld: WorldS
   });
 
   return {
-    update(nextWorld: WorldState, nextSelectedId: string | null) {
+    update(nextWorld: RenderableWorld, nextSelectedId: string | null) {
       world = nextWorld;
       selectedId = nextSelectedId;
       const scene = game.scene.getScene('terrarium');

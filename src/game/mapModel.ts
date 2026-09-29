@@ -1,4 +1,4 @@
-import type { DistrictId, WorldState } from '../sim/types';
+import type { DistrictId, SocialClass, WorldState, WorldStateV2 } from '../sim/types';
 
 export interface BuildingModel {
   id: string;
@@ -10,7 +10,25 @@ export interface BuildingModel {
   kind: 'home' | 'shop' | 'office' | 'clinic' | 'pavilion' | 'tree' | 'utility' | 'warehouse';
 }
 
-export function buildMapModel(world: WorldState) {
+export type RenderableWorld = WorldState | WorldStateV2;
+
+export interface ResidentMapModel {
+  id: string;
+  name: string;
+  x: number;
+  y: number;
+  color: string;
+  activity: WorldState['residents'][number]['activity'];
+  alive: boolean;
+  visibleClass: SocialClass | null;
+  visibleWealth: number;
+  hasVisibleHome: boolean;
+  hasVisibleVehicle: boolean;
+  lowProfile: number;
+  statusCue: string;
+}
+
+export function buildMapModel(world: RenderableWorld) {
   const kinds: Record<DistrictId, BuildingModel['kind'][]> = {
     residential: ['home', 'home', 'home', 'home', 'home', 'shop'],
     commerce: ['office', 'shop', 'office', 'clinic', 'shop', 'office'],
@@ -29,7 +47,50 @@ export function buildMapModel(world: WorldState) {
   return {
     districts: world.districts.map((district) => ({ ...district })),
     buildings,
-    residents: world.residents.map(({ id, name, x, y, color, activity, alive }) => ({ id, name, x, y, color, activity, alive })),
+    residents: world.residents.map((resident): ResidentMapModel => {
+      if (world.schemaVersion !== 2) {
+        return {
+          id: resident.id,
+          name: resident.name,
+          x: resident.x,
+          y: resident.y,
+          color: resident.color,
+          activity: resident.activity,
+          alive: resident.alive,
+          visibleClass: null,
+          visibleWealth: 0,
+          hasVisibleHome: false,
+          hasVisibleVehicle: false,
+          lowProfile: 0,
+          statusCue: '',
+        };
+      }
+      const residentV2 = world.residents.find((item) => item.id === resident.id)!;
+      const visibleAssets = world.assets.filter((asset) => asset.ownerId === resident.id && asset.visibleValue > 0);
+      const hasVisibleHome = visibleAssets.some((asset) => asset.kind === 'home');
+      const hasVisibleVehicle = visibleAssets.some((asset) => asset.kind === 'vehicle');
+      const status = [
+        hasVisibleHome ? 'H' : '',
+        hasVisibleVehicle ? 'V' : '',
+        residentV2.healthConditions.length ? '+' : '',
+        residentV2.legalStatus !== 'clear' ? '!' : '',
+      ].filter(Boolean).join('');
+      return {
+        id: residentV2.id,
+        name: residentV2.name,
+        x: residentV2.x,
+        y: residentV2.y,
+        color: residentV2.color,
+        activity: residentV2.activity,
+        alive: residentV2.alive,
+        visibleClass: residentV2.perceivedClass,
+        visibleWealth: visibleAssets.reduce((sum, asset) => sum + asset.visibleValue, 0),
+        hasVisibleHome,
+        hasVisibleVehicle,
+        lowProfile: residentV2.appearance.lowProfile,
+        statusCue: status,
+      };
+    }),
   };
 }
 
