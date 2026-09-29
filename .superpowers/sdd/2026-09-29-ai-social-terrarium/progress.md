@@ -1,5 +1,6 @@
 # SDD ledger — plan: docs/superpowers/plans/2026-09-29-ai-social-terrarium.md
 Baseline: npm test → 21 files, 35 tests passed.
+Task 9: Ruling: Playwright intercepts the four AI routes and launches only Vite so acceptance tests use deterministic responses and never consume a real DeepSeek key; production npm run dev still starts both services — cost if wrong: one fixture and one webServer command to replace.
 Pre-flight: Task 1 → Task 2 — WorldStateV2 and worldStateV2Schema feed migration/storage; interfaces align.
 Pre-flight: Task 1 → Task 3 — domain IDs and resident fields feed AI schemas/context; interfaces align.
 Pre-flight: Tasks 1 and 3 → Task 4 — gateway consumes shared AI contracts; interfaces align.
@@ -22,3 +23,4 @@ Task 4: complete (commits 1638d03..67218f5, tests: npm test -- tests/server/gate
 Task 5: complete (commits 67218f5..6d4668f, tests: npm test -- tests/sim/resolver-priority.test.ts tests/sim/resolver-life.test.ts tests/sim/resolver-crime.test.ts tests/sim/resolver-determinism.test.ts tests/sim/world.test.ts →    Duration  1.77s (transform 307ms, setup 1.19s, collect 1.24s, tests 68ms, environment 4.00s, prepare 902ms))
 Task 6: complete (commits 6d4668f..745b7c9, tests: npm test -- tests/api/frame-controller.test.ts tests/api/runtime.test.ts tests/api/advance.test.ts tests/persistence/history-v2.test.ts tests/sim/resolver-priority.test.ts tests/sim/resolver-life.test.ts tests/sim/resolver-crime.test.ts tests/sim/resolver-determinism.test.ts →    Duration  2.46s (transform 590ms, setup 2.68s, collect 2.75s, tests 380ms, environment 8.99s, prepare 1.49s))
 Task 7: complete (commits 745b7c9..bf83cd5, tests: npm test -- tests/ui/WorldSetup.test.tsx tests/ui/PolicyEditor.test.tsx tests/ui/FrameControls.test.tsx tests/review/bootRecovery.test.ts →    Duration  1.83s (transform 305ms, setup 876ms, collect 676ms, tests 797ms, environment 2.82s, prepare 641ms))
+Task 8: complete (commits bf83cd5..6626036, tests: npm test -- tests/ui/ResidentLens.test.tsx tests/ui/Timeline.test.tsx tests/game/mapModel.test.ts tests/persistence/history-v2.test.ts →    Duration  1.91s (transform 368ms, setup 855ms, collect 792ms, tests 521ms, environment 2.75s, prepare 658ms))

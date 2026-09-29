@@ -40,7 +40,7 @@ export interface AiClient {
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
 
 export class BrowserAiClient implements AiClient {
-  constructor(private readonly fetcher: Fetcher = fetch) {}
+  constructor(private readonly fetcher: Fetcher = (input, init) => globalThis.fetch(input, init)) {}
 
   private async post<T>(path: string, body: unknown, schema: z.ZodType<T>): Promise<AiResult<T>> {
     const response = await this.fetcher(path, {
