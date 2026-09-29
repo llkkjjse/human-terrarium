@@ -5,6 +5,9 @@ import { listPresets } from '../sim/scenarios';
 import type { Resident, WorldState, WorldStateV2 } from '../sim/types';
 import { FrameControls } from './FrameControls';
 import { PolicyEditor } from './PolicyEditor';
+import { ResidentLens } from './ResidentLens';
+import { Timeline } from './Timeline';
+import type { HistoryStore } from './HistoryList';
 
 const GameCanvas = lazy(() => import('./GameCanvas'));
 type Runtime = ReturnType<typeof createRuntime>;
@@ -224,11 +227,13 @@ const aiLabels = {
 export function AiTerrariumApp({
   runtime,
   aiClient,
+  historyStore,
   renderMap = true,
   initialNotice = null,
 }: {
   runtime: AiHumanTerrariumApi;
-  aiClient: Pick<AiClient, 'compilePolicy'>;
+  aiClient: Pick<AiClient, 'compilePolicy' | 'parseAbsoluteEvent'>;
+  historyStore: HistoryStore;
   renderMap?: boolean;
   initialNotice?: string | null;
 }) {
@@ -292,7 +297,7 @@ export function AiTerrariumApp({
             {renderMap ? (
               <Suspense fallback={<div className={'map-placeholder'}>LOADING MAP</div>}>
                 <GameCanvas
-                  world={world as unknown as WorldState}
+                  world={world}
                   selectedId={selectedId}
                   onSelect={selectResident}
                 />
@@ -307,20 +312,7 @@ export function AiTerrariumApp({
               ))}
             </div>
           </div>
-          <section className={'timeline'} aria-label={aiLabels.timeline}>
-            <div className={'timeline-heading'}><div><p>CAUSAL TRACE</p><h2>{aiLabels.timeline}</h2></div></div>
-            <div className={'timeline-list'}>
-              {world.events.length === 0
-                ? <p className={'empty-copy'}>{aiLabels.quiet}</p>
-                : world.events.slice(-8).reverse().map((event) => (
-                  <article key={event.id}>
-                    <span>{event.type.toUpperCase()}</span>
-                    <div><strong>{event.title}</strong><p>{event.detail}</p></div>
-                    <code>{event.causalId ?? `T${event.tick}`}</code>
-                  </article>
-                ))}
-            </div>
-          </section>
+          <Timeline events={world.events} />
         </section>
 
         <aside className={'panel people-panel'}>
@@ -339,12 +331,13 @@ export function AiTerrariumApp({
             ))}
           </div>
           {selected ? (
-            <section className={'resident-inspector'}>
-              <div className={'portrait'} style={{ background: selected.color }}>{selected.name.slice(0, 1)}</div>
-              <div><p>{selected.role} / {selected.realClass}</p><h2>{selected.name}</h2><span>{selected.activity}</span></div>
-              <h3>PLAYER GOAL</h3><p className={'status-line'}>{selected.playerGoal || '-'}</p>
-              <h3>CUSTOM TRAIT</h3><p className={'memory'}>{selected.customTrait || '-'}</p>
-            </section>
+            <ResidentLens
+              world={world}
+              resident={selected}
+              runtime={runtime}
+              aiClient={aiClient}
+              historyStore={historyStore}
+            />
           ) : <section className={'resident-inspector empty'}>{aiLabels.residents}</section>}
         </aside>
       </main>

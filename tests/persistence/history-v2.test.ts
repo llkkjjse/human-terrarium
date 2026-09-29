@@ -105,6 +105,18 @@ describe('append-only v2 history', () => {
     expect((await database.loadV2()).seed).toBe(601);
     expect(await database.listLifeLogs({ worldId: current.blueprint.id, limit: 10, offset: 0 })).toHaveLength(1);
     expect(await database.listConversations({ worldId: current.blueprint.id, limit: 10, offset: 0 })).toHaveLength(1);
+    expect(await database.listConversations({
+      worldId: current.blueprint.id,
+      residentId: 'resident-01',
+      limit: 10,
+      offset: 0,
+    })).toHaveLength(1);
+    expect(await database.listConversations({
+      worldId: current.blueprint.id,
+      residentId: 'resident-03',
+      limit: 10,
+      offset: 0,
+    })).toHaveLength(0);
     expect(await database.listEvents({ worldId: current.blueprint.id, limit: 10, offset: 0 })).toHaveLength(1);
     expect(await database.getStorageStats(current.blueprint.id)).toMatchObject({
       lifeLogs: 1,

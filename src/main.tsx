@@ -67,6 +67,7 @@ function Root({
     <AiTerrariumApp
       runtime={runtime}
       aiClient={aiClient}
+      historyStore={database}
       initialNotice={bootState.notice}
     />
   );

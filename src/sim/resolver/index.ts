@@ -132,8 +132,8 @@ function applyAbsolute(
   return {
     id: change.id,
     originalText: change.originalText,
-    title: typeof change.payload.title === 'string' ? change.payload.title : 'Forced world event',
-    detail: typeof change.payload.detail === 'string' ? change.payload.detail : change.originalText,
+    title: `\u73a9\u5bb6\u5f3a\u5236\u4e8b\u4ef6: ${typeof change.payload.title === 'string' ? change.payload.title : 'Forced world event'}`,
+    detail: `\u539f\u6587\uff1a${change.originalText}\n\u76f4\u63a5\u53d8\u66f4\uff1a${typeof change.payload.detail === 'string' ? change.payload.detail : JSON.stringify(changes)}`,
     residentIds,
   };
 }

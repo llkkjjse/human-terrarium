@@ -211,8 +211,13 @@ export class SaveDatabase {
     return this.page(this.database.lifeLogs, query);
   }
 
-  listConversations(query: PageQuery): Promise<ConversationRecord[]> {
-    return this.page(this.database.conversations, query);
+  async listConversations(query: PageQuery): Promise<ConversationRecord[]> {
+    const values = await this.database.conversations.where('worldId').equals(query.worldId).toArray();
+    return values
+      .filter((item) => !query.residentId || item.participantIds.includes(query.residentId))
+      .sort((left, right) => right.tick - left.tick || right.id.localeCompare(left.id))
+      .slice(query.offset, query.offset + query.limit)
+      .map((item) => structuredClone(item));
   }
 
   listEvents(query: PageQuery): Promise<PersistentEventRecord[]> {
