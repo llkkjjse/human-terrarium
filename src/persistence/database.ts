@@ -256,7 +256,11 @@ export class SaveDatabase {
   }
 
   async hasSave(): Promise<boolean> {
-    return (await this.database.saves.count()) > 0;
+    const [legacyCount, worldCount] = await Promise.all([
+      this.database.saves.count(),
+      this.database.worlds.count(),
+    ]);
+    return legacyCount > 0 || worldCount > 0;
   }
 
   async delete(): Promise<void> {

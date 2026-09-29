@@ -124,6 +124,40 @@ describe('transactional frame controller', () => {
     expect(controller.getWorldSnapshot()).toEqual(world);
   });
 
+  test('preserves interventions committed while the current AI request is in flight', async () => {
+    const world = resolverWorld();
+    let release!: (value: AiResult<FrameResponse>) => void;
+    const pending = new Promise<AiResult<FrameResponse>>((resolve) => { release = resolve; });
+    const commitFrame = vi.fn(async () => undefined);
+    const controller = new FrameController(world, {
+      aiClient: aiClient(vi.fn(() => pending)),
+      frameStore: { commitFrame },
+    });
+
+    const running = controller.runFrame('1h');
+    const edited = controller.getWorldSnapshot();
+    edited.queuedChanges.push({
+      id: 'next-frame-goal',
+      type: 'resident-edit',
+      residentId: edited.residents[0].id,
+      payload: { playerGoal: 'Buy a home.' },
+    });
+    controller.replaceWorld(edited);
+    release(result(world));
+    expect((await running).ok).toBe(true);
+
+    expect(controller.getWorldSnapshot().queuedChanges).toEqual([
+      expect.objectContaining({ id: 'next-frame-goal' }),
+    ]);
+    expect(commitFrame).toHaveBeenCalledWith(
+      expect.objectContaining({
+        queuedChanges: [expect.objectContaining({ id: 'next-frame-goal' })],
+      }),
+      expect.anything(),
+      expect.anything(),
+    );
+  });
+
   test('repairs only trait-priority violations once and rejects a failed repair', async () => {
     const world = resolverWorld();
     world.residents[0].customTrait = 'Never steals.';

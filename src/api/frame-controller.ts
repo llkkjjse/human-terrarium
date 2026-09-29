@@ -102,7 +102,6 @@ export class FrameController {
   }
 
   replaceWorld(next: WorldStateV2): void {
-    if (this.inFlight) throw new Error('Cannot replace the world while an AI frame is running.');
     this.world = structuredClone(next);
     this.publishState();
   }
@@ -237,6 +236,30 @@ export class FrameController {
       });
       const resolution = resolveFrame({ prepared, response: ai.response, granularity });
       if (this.aborted) return this.cancelledResult(frameStartTick, granularity);
+
+      // Player commands committed while the AI request was in flight belong to
+      // the next frame. Preserve them without letting them affect this result.
+      const pendingSnapshot = structuredClone(this.world);
+      const originalChangeIds = new Set(snapshot.queuedChanges.map((change) => change.id));
+      const resolvedChangeIds = new Set(resolution.world.queuedChanges.map((change) => change.id));
+      for (const change of pendingSnapshot.queuedChanges) {
+        if (!originalChangeIds.has(change.id) && !resolvedChangeIds.has(change.id)) {
+          resolution.world.queuedChanges.push(structuredClone(change));
+        }
+      }
+      const originalEventIds = new Set(snapshot.events.map((event) => event.id));
+      const resolvedEventIds = new Set(resolution.world.events.map((event) => event.id));
+      for (const event of pendingSnapshot.events) {
+        if (!originalEventIds.has(event.id) && !resolvedEventIds.has(event.id)) {
+          resolution.world.events.push(structuredClone(event));
+        }
+      }
+      resolution.world.selectedResidentId = pendingSnapshot.selectedResidentId;
+      resolution.world.timeScale = pendingSnapshot.timeScale;
+      resolution.world.nextEventSequence = Math.max(
+        resolution.world.nextEventSequence,
+        pendingSnapshot.nextEventSequence,
+      );
 
       this.setStatus({
         phase: 'saving',

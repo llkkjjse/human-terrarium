@@ -1,7 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import type { createRuntime } from '../api/runtime';
+import type { AiHumanTerrariumApi, createRuntime } from '../api/runtime';
+import type { AiClient } from '../ai/client';
 import { listPresets } from '../sim/scenarios';
-import type { Resident, WorldState } from '../sim/types';
+import type { Resident, WorldState, WorldStateV2 } from '../sim/types';
+import { FrameControls } from './FrameControls';
+import { PolicyEditor } from './PolicyEditor';
 
 const GameCanvas = lazy(() => import('./GameCanvas'));
 type Runtime = ReturnType<typeof createRuntime>;
@@ -206,5 +209,145 @@ function ResidentInspector({ resident }: { resident: Resident | null }) {
       <div className="trait-grid">{traits.map(([label, value]) => <div key={label}><span>{label}</span><i><b style={{ width: `${value}%` }} /></i></div>)}</div>
       <h3>近期记忆</h3><p className="memory">{resident.memories.at(-1)?.text ?? '今天还没有留下特别深刻的记忆。'}</p>
     </section>
+  );
+}
+
+const aiLabels = {
+  title: '\u4eba\u7c7b\u751f\u6001\u7bb1',
+  society: '\u793e\u4f1a\u63a7\u5236',
+  timeline: '\u5168\u5c40\u65f6\u95f4\u7ebf',
+  residents: '\u5c45\u6c11',
+  quiet: '\u6682\u65e0\u9700\u8981\u516c\u5f00\u7684\u91cd\u5927\u4e8b\u4ef6\u3002',
+  map: '\u793e\u533a\u5730\u56fe',
+};
+
+export function AiTerrariumApp({
+  runtime,
+  aiClient,
+  renderMap = true,
+  initialNotice = null,
+}: {
+  runtime: AiHumanTerrariumApi;
+  aiClient: Pick<AiClient, 'compilePolicy'>;
+  renderMap?: boolean;
+  initialNotice?: string | null;
+}) {
+  const [world, setWorld] = useState<WorldStateV2>(() => runtime.getWorldSnapshot());
+  const [selectedId, setSelectedId] = useState<string | null>(() => world.selectedResidentId);
+  const [notice, setNotice] = useState(initialNotice);
+  const selected = useMemo(
+    () => world.residents.find((resident) => resident.id === selectedId) ?? null,
+    [selectedId, world],
+  );
+
+  useEffect(() => runtime.subscribeState(setWorld), [runtime]);
+
+  const selectResident = (residentId: string) => {
+    setSelectedId(residentId);
+    void runtime.dispatch({ type: 'focus-resident', residentId });
+  };
+
+  return (
+    <div className={'app-shell ai-app-shell'}>
+      {notice && (
+        <div className={'persistence-notice'} role={'status'}>
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)}>OK</button>
+        </div>
+      )}
+      <header className={'topbar ai-topbar'}>
+        <div className={'brand-block'}>
+          <span className={'eyebrow'}>HUMAN TERRARIUM / AI</span>
+          <h1>{aiLabels.title}</h1>
+          <span className={'resident-count'}>{world.residents.filter((resident) => resident.alive).length} / 24</span>
+        </div>
+        <div className={'ai-clock'}>
+          <strong>{formatTime(world as unknown as WorldState)}</strong>
+          <FrameControls runtime={runtime} />
+        </div>
+        <div className={'metric-strip'}>
+          {Object.entries(world.metrics).map(([name, value]) => (
+            <div className={'metric'} key={name}>
+              <span>{name}</span><strong>{Math.round(value)}</strong>
+              <i style={{ '--metric': `${value}%` } as React.CSSProperties} />
+            </div>
+          ))}
+        </div>
+      </header>
+
+      <main className={'workspace ai-workspace'}>
+        <aside className={'panel era-panel ai-policy-panel'} aria-label={aiLabels.society}>
+          <div className={'panel-heading'}><span>01</span><div><p>SOCIETY</p><h2>{world.blueprint.name}</h2></div></div>
+          <p className={'scenario-copy'}>{world.blueprint.description}</p>
+          <PolicyEditor aiClient={aiClient} runtime={runtime} worldId={world.blueprint.id} />
+          <div className={'active-effects'}>
+            <span>ACTIVE POLICIES</span>
+            <strong>{world.blueprint.policies.filter((policy) => policy.enabled).length}</strong>
+          </div>
+        </aside>
+
+        <section className={'world-column'}>
+          <div className={'map-frame'}>
+            <div className={'map-chrome'}><span>{aiLabels.map}</span><span>{world.blueprint.name}</span></div>
+            {renderMap ? (
+              <Suspense fallback={<div className={'map-placeholder'}>LOADING MAP</div>}>
+                <GameCanvas
+                  world={world as unknown as WorldState}
+                  selectedId={selectedId}
+                  onSelect={selectResident}
+                />
+              </Suspense>
+            ) : <div className={'map-placeholder'}>{aiLabels.map}</div>}
+            <div className={'district-legend'}>
+              {world.districts.map((district) => (
+                <span key={district.id}>
+                  <i style={{ background: `#${district.color.toString(16).padStart(6, '0')}` }} />
+                  {district.name}
+                </span>
+              ))}
+            </div>
+          </div>
+          <section className={'timeline'} aria-label={aiLabels.timeline}>
+            <div className={'timeline-heading'}><div><p>CAUSAL TRACE</p><h2>{aiLabels.timeline}</h2></div></div>
+            <div className={'timeline-list'}>
+              {world.events.length === 0
+                ? <p className={'empty-copy'}>{aiLabels.quiet}</p>
+                : world.events.slice(-8).reverse().map((event) => (
+                  <article key={event.id}>
+                    <span>{event.type.toUpperCase()}</span>
+                    <div><strong>{event.title}</strong><p>{event.detail}</p></div>
+                    <code>{event.causalId ?? `T${event.tick}`}</code>
+                  </article>
+                ))}
+            </div>
+          </section>
+        </section>
+
+        <aside className={'panel people-panel'}>
+          <div className={'panel-heading'}><span>02</span><div><p>RESIDENTS</p><h2>{aiLabels.residents}</h2></div></div>
+          <div className={'resident-list'}>
+            {world.residents.map((resident) => (
+              <button
+                className={selectedId === resident.id ? 'selected' : ''}
+                key={resident.id}
+                onClick={() => selectResident(resident.id)}
+              >
+                <i style={{ background: resident.color }}>{resident.name.slice(0, 1)}</i>
+                <span><strong>{resident.name}</strong><small>{resident.role} / {resident.realClass}</small></span>
+                <em>{Math.round(resident.needs.health)}</em>
+              </button>
+            ))}
+          </div>
+          {selected ? (
+            <section className={'resident-inspector'}>
+              <div className={'portrait'} style={{ background: selected.color }}>{selected.name.slice(0, 1)}</div>
+              <div><p>{selected.role} / {selected.realClass}</p><h2>{selected.name}</h2><span>{selected.activity}</span></div>
+              <h3>PLAYER GOAL</h3><p className={'status-line'}>{selected.playerGoal || '-'}</p>
+              <h3>CUSTOM TRAIT</h3><p className={'memory'}>{selected.customTrait || '-'}</p>
+            </section>
+          ) : <section className={'resident-inspector empty'}>{aiLabels.residents}</section>}
+        </aside>
+      </main>
+    </div>
   );
 }

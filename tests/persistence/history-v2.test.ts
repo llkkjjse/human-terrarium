@@ -101,6 +101,7 @@ describe('append-only v2 history', () => {
 
     await database.commitFrame(current, history, aiRun(current.blueprint.id));
 
+    expect(await database.hasSave()).toBe(true);
     expect((await database.loadV2()).seed).toBe(601);
     expect(await database.listLifeLogs({ worldId: current.blueprint.id, limit: 10, offset: 0 })).toHaveLength(1);
     expect(await database.listConversations({ worldId: current.blueprint.id, limit: 10, offset: 0 })).toHaveLength(1);
