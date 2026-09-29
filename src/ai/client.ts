@@ -11,7 +11,7 @@ const usageSchema = z.object({
   estimatedCost: z.number().finite().nonnegative(),
 });
 
-const compiledPolicySchema = z.object({
+export const compiledPolicySchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   description: z.string(),
@@ -20,7 +20,7 @@ const compiledPolicySchema = z.object({
   modifiers: z.array(z.object({ path: z.string(), delta: z.number().min(-100).max(100) })),
 });
 
-const absoluteEventSchema = z.object({
+export const absoluteEventSchema = z.object({
   id: z.string().min(1),
   originalText: z.string().min(1),
   payload: z.record(z.string(), z.unknown()),
