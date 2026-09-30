@@ -2,7 +2,10 @@ import { z } from 'zod';
 import { absoluteEventSchema, compiledPolicySchema, type AiResult } from '../src/ai/client';
 import { frameResponseSchema, type FrameRequest, type FrameResponse } from '../src/ai/contracts';
 import { worldStateV2Schema } from '../src/sim/schema';
+import { createGeneratedWorld } from '../src/sim/generation';
+import { scenarioSchema } from '../src/sim/scenarios';
 import type { SocietyBlueprint, WorldStateV2 } from '../src/sim/types';
+import { districts } from '../src/sim/world';
 import { systemPrompt } from './prompts';
 
 type Fetcher = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
@@ -30,6 +33,30 @@ interface RawCompletion {
   outputTokens: number;
 }
 
+const worldPlanSchema = z.object({
+  name: z.string().min(1).max(40),
+  description: z.string().min(1).max(240),
+  parameters: scenarioSchema.shape.parameters,
+  policies: scenarioSchema.shape.policies,
+});
+
+const defaultSocial: SocietyBlueprint['social'] = {
+  inequality: 55,
+  mobility: 45,
+  trust: 55,
+  corruption: 20,
+  crimePressure: 35,
+  gossip: 55,
+};
+
+function stableSeed(value: string): number {
+  let hash = 0x811c9dc5;
+  for (let index = 0; index < value.length; index += 1) {
+    hash = Math.imul(hash ^ value.charCodeAt(index), 0x01000193);
+  }
+  return hash >>> 0 || 1;
+}
+
 export class DeepSeekService {
   private readonly model: string;
   private readonly baseUrl: string;
@@ -40,7 +67,7 @@ export class DeepSeekService {
   constructor(private readonly options: DeepSeekOptions) {
     this.model = options.model ?? 'deepseek-flash';
     this.baseUrl = (options.baseUrl ?? 'https://api.deepseek.com').replace(/\/$/, '');
-    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.timeoutMs = options.timeoutMs ?? 120_000;
     this.fetcher = options.fetcher ?? fetch;
     this.now = options.now ?? Date.now;
   }
@@ -116,8 +143,22 @@ export class DeepSeekService {
     };
   }
 
-  generateWorld(input: { description: string; blueprint: Partial<SocietyBlueprint> }): Promise<AiResult<WorldStateV2>> {
-    return this.requestJson(systemPrompt('world'), input, worldStateV2Schema);
+  async generateWorld(input: { description: string; blueprint: Partial<SocietyBlueprint> }): Promise<AiResult<WorldStateV2>> {
+    const plan = await this.requestJson(systemPrompt('world'), input, worldPlanSchema);
+    const seed = stableSeed(JSON.stringify({ description: input.description, plan: plan.data }));
+    const blueprint: SocietyBlueprint = {
+      schemaVersion: 2,
+      id: input.blueprint.id ?? `blueprint-${seed.toString(36)}`,
+      name: input.blueprint.name ?? plan.data.name,
+      description: input.blueprint.description ?? plan.data.description,
+      sourceText: input.description,
+      parameters: input.blueprint.parameters ?? plan.data.parameters,
+      policies: input.blueprint.policies ?? plan.data.policies,
+      districts: structuredClone(input.blueprint.districts ?? districts),
+      social: structuredClone(input.blueprint.social ?? defaultSocial),
+    };
+    const data = worldStateV2Schema.parse(createGeneratedWorld({ seed, blueprint }));
+    return { data, usage: plan.usage };
   }
 
   compilePolicy(input: { text: string; worldId: string }) {

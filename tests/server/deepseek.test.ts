@@ -1,6 +1,7 @@
 import { describe, expect, test, vi } from 'vitest';
 import { z } from 'zod';
 import { DeepSeekService } from '../../server/deepseek';
+import { getPreset } from '../../src/sim/scenarios';
 
 function upstream(content: string, status = 200): Response {
   return new Response(JSON.stringify({
@@ -59,6 +60,41 @@ describe('DeepSeekService', () => {
     expect(repairBody.messages.at(-1).content).toContain('修复');
   });
 
+  test('asks AI for a compact social plan and generates all residents locally', async () => {
+    const parameters = getPreset('stable-modern').parameters;
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, _init?: RequestInit) => upstream(JSON.stringify({
+      name: 'Harbor Commons',
+      description: 'A divided neighborhood with limited upward mobility.',
+      parameters,
+      policies: [],
+    })));
+    const service = new DeepSeekService({ apiKey: 'sk-world-plan', fetcher });
+
+    const result = await service.generateWorld({
+      description: 'A sharply divided neighborhood.',
+      blueprint: {
+        social: {
+          inequality: 82,
+          mobility: 28,
+          trust: 44,
+          corruption: 31,
+          crimePressure: 47,
+          gossip: 68,
+        },
+      },
+    });
+
+    expect(result.data.residents).toHaveLength(24);
+    expect(result.data.blueprint.name).toBe('Harbor Commons');
+    expect(result.data.blueprint.sourceText).toBe('A sharply divided neighborhood.');
+    expect(result.data.blueprint.social.inequality).toBe(82);
+    const request = JSON.parse(String(fetcher.mock.calls[0][1]?.body));
+    const userMessage = JSON.parse(request.messages[1].content);
+    expect(userMessage.responseSchema.properties).toHaveProperty('parameters');
+    expect(userMessage.responseSchema.properties).not.toHaveProperty('residents');
+    expect(userMessage.responseSchema.properties).not.toHaveProperty('assets');
+  });
+
   test('does not retry network or balance failures and never leaks the key', async () => {
     const network = vi.fn((_input: RequestInfo | URL, _init?: RequestInit) => Promise.reject(new Error('socket failed sk-network-secret')));
     const networkService = new DeepSeekService({ apiKey: 'sk-network-secret', fetcher: network });
@@ -79,5 +115,26 @@ describe('DeepSeekService', () => {
 
     await expect(service.requestJson('system', {}, z.object({ ok: z.boolean() }))).rejects.toThrow('超时');
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  test('allows a complex default request to run longer than thirty seconds', () => {
+    vi.useFakeTimers();
+    try {
+      let signal: AbortSignal | undefined;
+      const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
+        signal = init?.signal ?? undefined;
+        init?.signal?.addEventListener('abort', () => {
+          reject(new DOMException('aborted', 'AbortError'));
+        });
+      }));
+      const service = new DeepSeekService({ apiKey: 'sk-long-world', fetcher });
+      void service.requestJson('system', {}, z.object({ answer: z.string() })).catch(() => undefined);
+
+      vi.advanceTimersByTime(31_000);
+      expect(signal?.aborted).toBe(false);
+    } finally {
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 });
